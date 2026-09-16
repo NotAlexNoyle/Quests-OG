@@ -27,6 +27,7 @@ class QuestsOG : JavaPlugin() {
         lateinit var luckPerms: LuckPerms
         lateinit var duels: Duels
         lateinit var mobHeads: Plugin
+        lateinit var npcApi: NpcApi
         lateinit var questNpcs: QuestNpcRegistry
         var mm =
             MiniMessage.builder()
@@ -35,7 +36,7 @@ class QuestsOG : JavaPlugin() {
 
         fun isRedisInitialized() = ::redis.isInitialized
 
-        private var npcApiStarted = false
+        fun isNpcApiInitialized() = ::npcApi.isInitialized
     }
 
     override fun onEnable() {
@@ -100,8 +101,7 @@ class QuestsOG : JavaPlugin() {
         // start (unsupported server build), quests stay usable through the commands; only NPCs are lost.
         questNpcs = QuestNpcRegistry()
         try {
-            NpcApi.createInstance(this, NpcConfig().autoUpdate(false).debug(Companion.config.debug))
-            npcApiStarted = true
+            npcApi = NpcApi.createInstance(this, NpcConfig().autoUpdate(false).debug(Companion.config.debug))
         } catch (t: Throwable) {
             logger.severe("NpcApi failed to start, quest NPCs are disabled: ${t.message}")
             if (Companion.config.debug) t.printStackTrace()
@@ -119,10 +119,9 @@ class QuestsOG : JavaPlugin() {
     }
 
     override fun onDisable() {
-        if (npcApiStarted) {
+        if (isNpcApiInitialized()) {
             questNpcs.despawnAll()
             NpcApi.disable()
-            npcApiStarted = false
         }
 
         if (isRedisInitialized()) {

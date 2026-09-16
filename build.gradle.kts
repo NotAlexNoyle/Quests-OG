@@ -72,10 +72,10 @@ repositories {
 }
 
 /* ---------------------- Java project deps ---------------------------- */
-// NpcApi is kept off runtimeClasspath so RelocationUtil never sees it; see relocateNpcApi below.
+// NpcApi is compiled against but kept off runtimeClasspath so stage 1 never relocates it; see pluginJar.
 val npcApi: Configuration by configurations.creating { isTransitive = false }
 
-val npcApiVersion = "2.3.3" // Last NpcApi release built for Java 17 (supports 1.19.4 via v1_19_R3).
+configurations.compileOnly { extendsFrom(npcApi) }
 
 dependencies {
     compileOnly("org.purpurmc.purpur:purpur-api:1.19.4-R0.1-SNAPSHOT") // Declare Purpur API version to be packaged.
@@ -94,8 +94,7 @@ dependencies {
         attributes { attribute(kotlinAttribute, true) }
     } // Import TrueOG network DiamondBank-OG Kotlin API (from source).
     implementation(project(":libs:GxUI-OG")) // Shade TrueOG Network GxUI-OG progress menu API into this plugin.
-    compileOnly("com.github.Eisi05:NpcApi:$npcApiVersion") // Compile against NpcApi (relocated at shade time).
-    npcApi("com.github.Eisi05:NpcApi:$npcApiVersion") // Shade NpcApi player NPC library into this plugin.
+    npcApi("com.github.Eisi05:NpcApi:2.3.3") // Shade NpcApi (last Java 17 release; supports 1.19.4 via v1_19_R3).
 }
 
 configurations.runtimeClasspath {
@@ -110,37 +109,35 @@ tasks.withType<AbstractArchiveTask>().configureEach { // Ensure reproducible .ja
 }
 
 /* ----------------------------- Shadow -------------------------------- */
-// NpcApi injects a netty handler into the server's player pipeline, so it must keep
-// referencing the server's io.netty. Lettuce ships its own netty that the main shadowJar
-// relocates under the shadow prefix. Stage 1 renames NpcApi's netty references to a
-// placeholder package that the main task maps straight back to io.netty.
-val relocateNpcApi by
-    tasks.registering(ShadowJar::class) {
-        archiveClassifier.set("npcapi-relocated")
-        configurations = listOf(npcApi)
-        relocate("io.netty", "questsog.nettyshim")
-        exclude("META-INF/**")
-        exclude("de/eisi05/npc/api/utils/Metrics*.class") // Drop bStats; a no-op stub ships in src/main/kotlin.
-    }
-
+// Stage 1: shade and relocate every ordinary dependency (lettuce and its netty 4.2 included).
 tasks.shadowJar {
-    dependsOn(relocateNpcApi)
-    from(zipTree(relocateNpcApi.flatMap { it.archiveFile }))
-    archiveClassifier.set("") // Use empty string instead of null.
+    archiveClassifier.set("core")
+    destinationDirectory.set(layout.buildDirectory.dir("tmp/shadowCore")) // Intermediate; not a deployable jar.
     isEnableRelocation = false
     relocationPrefix = "${project.group}.shadow"
     relocate("kotlin", "net.trueog.diamondbankog.shadow.kotlin")
     relocate("kotlinx", "net.trueog.diamondbankog.shadow.kotlinx")
-    relocate("questsog.nettyshim", "io.netty") // Map NpcApi's placeholder back onto the server's netty.
-    relocate("de.eisi05", "${project.group}.shadow.de.eisi05") // Relocate NpcApi (and our call sites).
     doFirst { RelocationUtil.configureRelocation(this@shadowJar, relocationPrefix) }
     mergeServiceFiles()
     minimize { exclude(dependency("org.slf4j:slf4j-nop:.*")) }
 }
 
-tasks.jar { archiveClassifier.set("part") } // Applies to root jarfile only.
+// Stage 2: layer NpcApi onto the relocated core. NpcApi hooks the server's own netty pipeline, so its
+// io.netty references must stay untouched; only its package is relocated, and only after stage 1 ran.
+val pluginJar by
+    tasks.registering(ShadowJar::class) {
+        archiveClassifier.set("") // The final plugin jar; use empty string instead of null.
+        from(zipTree(tasks.shadowJar.flatMap { it.archiveFile }))
+        from(provider { zipTree(npcApi.singleFile) }) {
+            exclude("de/eisi05/npc/api/utils/Metrics*.class") // Drop bStats; a no-op stub ships in src/main/kotlin.
+            exclude("META-INF/**")
+        }
+        relocate("de.eisi05", "${project.group}.shadow.de.eisi05") // Relocate NpcApi (and our call sites).
+    }
 
-tasks.build { dependsOn(tasks.spotlessApply, tasks.shadowJar) } // Build depends on spotless and shadow.
+tasks.jar { enabled = false } // Only the shaded plugin jar is deployable; skip the thin jar.
+
+tasks.build { dependsOn(tasks.spotlessApply, pluginJar) } // Build depends on spotless and the final plugin jar.
 
 /* --------------------------- Javac opts ------------------------------- */
 tasks.withType<JavaCompile>().configureEach {
