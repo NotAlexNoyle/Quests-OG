@@ -1,7 +1,29 @@
 # Quests-OG
 Quests plugin for TrueOG
 
+## Quest NPCs
+Six player NPCs, one per home tier, powered by a shaded [NpcApi](https://github.com/Eisi05/NpcApi-Spigot) 2.3.3
+(the last release for Java 17 / 1.19.4). Tier 1 is a greeter that explains the ladder in chat; tiers 2-6 open the
+quest menu directly on their quest, with a **Claim** button on the player's current quest. Nametags are per player:
+green ✔ for completed tiers, yellow for the current one, gray ✖ for locked ones.
+
+NPCs are never persisted by NpcApi; they are rebuilt from `config.yml` on every enable.
+
+### `/questnpc` (permission `questsog.admin`, default op)
+- `/questnpc set <tier>` — place (or move) the NPC for that tier at your location. Writes `npcs.<tier>` to config.yml.
+- `/questnpc remove <tier>` — delete the NPC and its config entry.
+- `/questnpc tp <tier>` — teleport to the NPC.
+- `/questnpc list` — show configured and spawned tiers.
+- `/questnpc reload` — re-read the `npcs` section and respawn.
+
+### Skins
+The bundled config ships a MineSkin texture per tier (sage, adventurer, miner, sorcerer, ranger, dark knight), so a
+fresh install only needs `/questnpc set <tier>` for each. Each `npcs.<tier>.skin` takes a raw texture `value` and
+`signature` (for example from [mineskin.org](https://mineskin.org)); an entry with only a skin is an NPC that is not
+placed yet. Leave both blank for the default skin. An invalid signature results in the default skin.
+
 ## Permissions used
+- questsog.admin
 - essentials.sethome.multiple.homes-2
 - essentials.sethome.multiple.homes-3
 - essentials.sethome.multiple.homes-4

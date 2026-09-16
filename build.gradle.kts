@@ -1,6 +1,7 @@
 /* This is free and unencumbered software released into the public domain */
 
 import com.github.jengelman.gradle.plugins.shadow.internal.RelocationUtil
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import java.io.BufferedReader
 import org.gradle.kotlin.dsl.provideDelegate
 
@@ -56,6 +57,7 @@ repositories {
     mavenCentral() // Import the Maven Central Maven Repository.
     gradlePluginPortal() // Import the Gradle Plugin Portal Maven Repository.
     maven { url = uri("https://repo.purpurmc.org/snapshots") } // Import the PurpurMC Maven Repository.
+    maven { url = uri("https://jitpack.io") } // Import JitPack (NpcApi).
     maven { url = uri("file://${System.getProperty("user.home")}/.m2/repository") }
     System.getProperty("SELF_MAVEN_LOCAL_REPO")?.let { // TrueOG Bootstrap mavenLocal().
         val dir = file(it)
@@ -70,6 +72,11 @@ repositories {
 }
 
 /* ---------------------- Java project deps ---------------------------- */
+// NpcApi is kept off runtimeClasspath so RelocationUtil never sees it; see relocateNpcApi below.
+val npcApi: Configuration by configurations.creating { isTransitive = false }
+
+val npcApiVersion = "2.3.3" // Last NpcApi release built for Java 17 (supports 1.19.4 via v1_19_R3).
+
 dependencies {
     compileOnly("org.purpurmc.purpur:purpur-api:1.19.4-R0.1-SNAPSHOT") // Declare Purpur API version to be packaged.
     compileOnly("net.luckperms:api:5.5") // Import the LuckPerms API.
@@ -87,6 +94,8 @@ dependencies {
         attributes { attribute(kotlinAttribute, true) }
     } // Import TrueOG network DiamondBank-OG Kotlin API (from source).
     implementation(project(":libs:GxUI-OG")) // Shade TrueOG Network GxUI-OG progress menu API into this plugin.
+    compileOnly("com.github.Eisi05:NpcApi:$npcApiVersion") // Compile against NpcApi (relocated at shade time).
+    npcApi("com.github.Eisi05:NpcApi:$npcApiVersion") // Shade NpcApi player NPC library into this plugin.
 }
 
 configurations.runtimeClasspath {
@@ -101,12 +110,29 @@ tasks.withType<AbstractArchiveTask>().configureEach { // Ensure reproducible .ja
 }
 
 /* ----------------------------- Shadow -------------------------------- */
+// NpcApi injects a netty handler into the server's player pipeline, so it must keep
+// referencing the server's io.netty. Lettuce ships its own netty that the main shadowJar
+// relocates under the shadow prefix. Stage 1 renames NpcApi's netty references to a
+// placeholder package that the main task maps straight back to io.netty.
+val relocateNpcApi by
+    tasks.registering(ShadowJar::class) {
+        archiveClassifier.set("npcapi-relocated")
+        configurations = listOf(npcApi)
+        relocate("io.netty", "questsog.nettyshim")
+        exclude("META-INF/**")
+        exclude("de/eisi05/npc/api/utils/Metrics*.class") // Drop bStats; a no-op stub ships in src/main/kotlin.
+    }
+
 tasks.shadowJar {
+    dependsOn(relocateNpcApi)
+    from(zipTree(relocateNpcApi.flatMap { it.archiveFile }))
     archiveClassifier.set("") // Use empty string instead of null.
     isEnableRelocation = false
     relocationPrefix = "${project.group}.shadow"
     relocate("kotlin", "net.trueog.diamondbankog.shadow.kotlin")
     relocate("kotlinx", "net.trueog.diamondbankog.shadow.kotlinx")
+    relocate("questsog.nettyshim", "io.netty") // Map NpcApi's placeholder back onto the server's netty.
+    relocate("de.eisi05", "${project.group}.shadow.de.eisi05") // Relocate NpcApi (and our call sites).
     doFirst { RelocationUtil.configureRelocation(this@shadowJar, relocationPrefix) }
     mergeServiceFiles()
     minimize { exclude(dependency("org.slf4j:slf4j-nop:.*")) }

@@ -26,37 +26,11 @@ class ClaimQuest : CommandExecutor {
 
         QuestsOG.scope.launch {
             try {
-                if (debug) QuestsOG.plugin.logger.info("/claimquest coroutine entered for ${sender.name}")
-                val isEligible = nextQuest.isEligible(sender)
-                if (debug) QuestsOG.plugin.logger.info("/claimquest isEligible=$isEligible")
-                if (isEligible == null) {
-                    UtilitiesOG.trueogMessage(
-                        sender,
-                        "<red>Something went wrong while checking your quest eligibility. Contact an administrator.<reset>",
-                    )
-                    return@launch
-                }
-
-                if (isEligible) {
-                    val successful = nextQuest.consumeQuestItems(sender)
-                    if (!successful) {
-                        UtilitiesOG.trueogMessage(
-                            sender,
-                            "<red>Something wrong while trying to consume the quest items.",
-                        )
-                        return@launch
-                    }
-                    nextQuest.reward(sender)
-                    val homeCount = HomesProgression.getHomeCount(nextQuest)
-                    val questName = nextQuest::class.simpleName
-                    UtilitiesOG.logToConsole("[Quests-OG]", "${sender.name} claimed quest $questName")
-                    UtilitiesOG.trueogMessage(
-                        sender,
-                        "<green>Claimed quest! You now have <yellow>$homeCount<green> homes.<reset>",
-                    )
-                    return@launch
-                } else {
-                    UtilitiesOG.trueogMessage(sender, "<red>You must meet all the quest's requirements first.<reset>")
+                val result = QuestClaimer.claim(sender, nextQuest)
+                if (debug) QuestsOG.plugin.logger.info("/claimquest result=$result")
+                QuestClaimer.notify(sender, result)
+                if (result is QuestClaimer.Result.Claimed) {
+                    MainThreadBlock.runOnMainThread { QuestsOG.questNpcs.refreshNames(sender) }
                 }
             } catch (t: Throwable) {
                 QuestsOG.plugin.logger.severe("/claimquest failed: ${t.message}")

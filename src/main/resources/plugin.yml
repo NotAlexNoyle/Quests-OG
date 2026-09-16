@@ -13,3 +13,11 @@ commands:
   questgui:
     description: Open the layered homes quest menu.
     usage: /questgui
+  questnpc:
+    description: Manage the home quest NPCs.
+    usage: /questnpc <set|remove|tp|list|reload> [tier]
+    permission: questsog.admin
+permissions:
+  questsog.admin:
+    description: Manage Quests-OG NPCs.
+    default: op
